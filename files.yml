@@ -69,17 +69,17 @@
 
        - job:  ProcessTestResults
           displayName: 'Process Test Results'
-          dependsOn: E2E_test
-          condition: eq(dependencies.E2E_test.outputs['passOutput.initialFileFound'], 'Yes')
+          dependsOn: A
+          condition: eq(dependencies.A.outputs['passOutput.initialFileFound'], 'Yes')
           steps:
             - script: echo test
             
          ## Job I want to perform in future once the issue is resolved is 
         - job:  ProcessTestResults
           displayName: 'Process Test Results'
-          dependsOn: E2E_test
+          dependsOn: A
           
-          condition: and(succeeded(), eq(dependencies.E2E_test.outputs['passOutput.script'], 'true'))
+          condition:  eq(dependencies.A.outputs['passOutput.initialFileFound'], 'true'))
           steps:
             - task: CopyFiles@2           
               displayName: 'Copy Files to: $(Build.ArtifactStagingDirectory)/${{ parameters.targetfolder }}/TestArtifacts'
