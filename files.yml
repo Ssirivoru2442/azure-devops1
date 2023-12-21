@@ -1,13 +1,12 @@
-stage: Azure
-jobs
-    - job: A
-      steps:
-
+- stage: Azure
+    jobs:
+      - job: A
+        steps:
         - task: PowerShell@2
           displayName: 'find failed tests and copy them'
           name: passOutput
           inputs:
-            workingDirectory: $(Pipeline.Workspace)/$(Build.BuildId)/Tests/E2EAutomationTests/Logs
+            workingDirectory: '$(Pipeline.Workspace)/s/TestFolder1'
             targetType: 'inline'
             script: |
                 Write-Host "Current Working Directory:"
@@ -20,38 +19,79 @@ jobs
                 $initialFileName = "failedTests.txt"
                 $targetFolder = ".\FailedTestCopy" 
                 $folders = Get-ChildItem -Path $currentDirectory -Directory
-                foreach ($folder in $folders) {
+                
                     $folderPath = $folder.FullName
                     $aTxtFile = Get-ChildItem -Path $folderPath -Filter $initialFileName -File -Recurse
                       
                     if (-not $aTxtFile) {
                         Write-Host "No '$initialFileName' found in the folder '$($folder.Name)'."
                         Write-Host "##vso[task.setvariable variable=initialFileFound;isoutput=true]no"
+                        break
 
                   } else {
                       $destination = Join-Path -Path $targetFolder -ChildPath $folder.Name
-                      New-Item -ItemType Directory -Path $destination | Out-Null
-                      Write-Host "Destination directory created: $destination"
-                      Write-Host "##vso[task.setvariable variable=initialFileFound;isoutput=true]yes"
+                      if (-not (Test-Path -Path $destination)) {
+                          New-Item -ItemType Directory -Path $destination | Out-Null
+                          Write-Host "Destination directory created: $destination"
+                          Write-Host "##vso[task.setvariable variable=initialFileFound;isoutput=true]yes"
+						 
+                  }
+				  
+				  
+                      $fileLines = Get-Content $aTxtFile.FullName
+                      foreach ($line in $fileLines) {
+                          $cleanedLine = $line.Trim() -replace '^\d+\.\s*', '' -replace '[\\\/:*?"<>|]', '-'
+                          $newFileName = "$cleanedLine.txt"
+                          $searchedFile = Get-ChildItem -Path $folderPath -Filter $newFileName -File | Select-Object -First 1
+                          if ($searchedFile) {
+                              $fileDestination = Join-Path -Path $destination -ChildPath $searchedFile.Name
+                              Copy-Item -Path $searchedFile.FullName -Destination $fileDestination -Force
+                              Write-Host "File '$searchedFile' copied to '$fileDestination'"
+                  } else {
+                              Write-Host "File '$line' not found in the source subdirectory"
+                  }
+                          $subdirectoryName = ($newFileName -split '-')[1] -replace '\.txt', ''
+                          $subdirectory = Get-ChildItem -Path $currentDirectory -Directory -Filter $subdirectoryName -Recurse | Select-Object -First 1
+                          if ($subdirectory) {
+                              $fileDestination = Join-Path -Path $destination -ChildPath $subdirectory.Name
+                              Copy-Item -Path $subdirectory.FullName -Destination $fileDestination -Recurse -Force
+                              Write-Host "Subdirectory '$subdirectory' copied to '$fileDestination'"
+                          } else {
+                              Write-Host "Subdirectory '$subdirectoryName' not found in the current directory"
                   }
                   }
-                  
-                                
-                  
-              
-    - job:  ProcessTestResults
-      displayName: 'Process Test Results'
-      dependsOn: A
-      condition: eq(dependencies.A.outputs['passOutput.initialFileFound'], 'yes')
-      steps:
-        - task: CopyFiles@2           
-          displayName: 'Copy Files to: $(Build.ArtifactStagingDirectory)/${{ parameters.targetfolder }}/TestArtifacts'
-          inputs:
-          sourceFolder: '$(Pipeline.Workspace)\$(Build.BuildId)\Tests\E2EAutomationTests\Logs\FailedTestCopy'
-          contents: |
-            **/failedTests.txt
-            **/*.txt
-            **/*.etl
+                  }
+				  
+
+        - script: |
+            echo $(passOutput.initialFileFound)
+          displayName: Checkthevalue
+
+       - job:  ProcessTestResults
+          displayName: 'Process Test Results'
+          dependsOn: E2E_test
+          condition: eq(dependencies.E2E_test.outputs['passOutput.initialFileFound'], 'Yes')
+          steps:
+            - script: echo test
+            
+         ## Job I want to perform in future once the issue is resolved is 
+        - job:  ProcessTestResults
+          displayName: 'Process Test Results'
+          dependsOn: E2E_test
+          
+          condition: and(succeeded(), eq(dependencies.E2E_test.outputs['passOutput.script'], 'true'))
+          steps:
+            - task: CopyFiles@2           
+              displayName: 'Copy Files to: $(Build.ArtifactStagingDirectory)/${{ parameters.targetfolder }}/TestArtifacts'
+             # condition: and(succeeded(), eq(variables['foundFailedTests'], 'true'))
+
+              inputs:
+                sourceFolder: '$(Pipeline.Workspace)\$(Build.BuildId)\Tests\E2EAutomationTests\Logs\FailedTestCopy'
+                contents: |
+                 **/failedTests.txt
+                  **/*.txt
+                  **/*.etl
                 
-            TargetFolder: '$(Build.ArtifactStagingDirectory)/${{ parameters.targetfolder }}/TestResults'
-            OverWrite: true
+                TargetFolder: '$(Build.ArtifactStagingDirectory)/${{ parameters.targetfolder }}/TestResults'
+                OverWrite: true
+              continueOnError: true
