@@ -1,0 +1,57 @@
+stage: Azure
+jobs
+    - job: A
+      steps:
+
+        - task: PowerShell@2
+          displayName: 'find failed tests and copy them'
+          name: passOutput
+          inputs:
+            workingDirectory: $(Pipeline.Workspace)/$(Build.BuildId)/Tests/E2EAutomationTests/Logs
+            targetType: 'inline'
+            script: |
+                Write-Host "Current Working Directory:"
+                Write-Host (Get-Location)
+ 
+                Write-Host "Contents of the Current Directory:"
+                Get-ChildItem
+ 
+                $currentDirectory = Get-Location
+                $initialFileName = "failedTests.txt"
+                $targetFolder = ".\FailedTestCopy" 
+                $folders = Get-ChildItem -Path $currentDirectory -Directory
+                foreach ($folder in $folders) {
+                    $folderPath = $folder.FullName
+                    $aTxtFile = Get-ChildItem -Path $folderPath -Filter $initialFileName -File -Recurse
+                      
+                    if (-not $aTxtFile) {
+                        Write-Host "No '$initialFileName' found in the folder '$($folder.Name)'."
+                        Write-Host "##vso[task.setvariable variable=initialFileFound;isoutput=true]no"
+
+                  } else {
+                      $destination = Join-Path -Path $targetFolder -ChildPath $folder.Name
+                      New-Item -ItemType Directory -Path $destination | Out-Null
+                      Write-Host "Destination directory created: $destination"
+                      Write-Host "##vso[task.setvariable variable=initialFileFound;isoutput=true]yes"
+                  }
+                  }
+                  
+                                
+                  
+              
+    - job:  ProcessTestResults
+      displayName: 'Process Test Results'
+      dependsOn: A
+      condition: eq(dependencies.A.outputs['passOutput.initialFileFound'], 'yes')
+      steps:
+        - task: CopyFiles@2           
+          displayName: 'Copy Files to: $(Build.ArtifactStagingDirectory)/${{ parameters.targetfolder }}/TestArtifacts'
+          inputs:
+          sourceFolder: '$(Pipeline.Workspace)\$(Build.BuildId)\Tests\E2EAutomationTests\Logs\FailedTestCopy'
+          contents: |
+            **/failedTests.txt
+            **/*.txt
+            **/*.etl
+                
+            TargetFolder: '$(Build.ArtifactStagingDirectory)/${{ parameters.targetfolder }}/TestResults'
+            OverWrite: true
